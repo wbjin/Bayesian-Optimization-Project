@@ -3,21 +3,25 @@ import plotly.graph_objects as go
 import csv
 import pandas as pd
 
-i = 0.1
+i = -1.5
 xData = []
 yData = []
 counter = 0
-while (i <= 5):
+
+def f(x):
+    return x**2+np.cos(x**2)+np.sin(x**3)
+
+while (i <= 1.5):
     for x in range(8):
         xData.append(i)
-    yData.append(np.log(i))
-    yData.append(np.log(i+i/16))
-    yData.append(np.log(i+i/18))
-    yData.append(np.log(i+i/21))
-    yData.append(np.log(i)*0.9)
-    yData.append(np.log(i+i/16)*1.1)
-    yData.append(np.log(i+i/18)*0.85)
-    yData.append(np.log(i+i/20)*1.17)
+    yData.append(f(i))
+    yData.append(f(i+i/16))
+    yData.append(f(i+i/18))
+    yData.append(f(i+i/21))
+    yData.append(f(i)*0.9)
+    yData.append(f(i+i/16)*1.1)
+    yData.append(f(i+i/18)*0.85)
+    yData.append(f(i+i/20)*1.17)
     
     i+=0.1
     
@@ -51,20 +55,15 @@ def remove(start, end, xData, yData):
     
     return xData, yData
 
-xData, yData = remove(20, 30, xData, yData)
-xData, yData = remove(37, 42, xData, yData)
-xData, yData = remove(57, 69, xData, yData)
-xData, yData = remove(83, 91, xData, yData)
-xData, yData = remove(132, 153, xData, yData)
-xData, yData = remove(179, 190, xData, yData)
-
-fig = go.Figure(go.Scatter(x = xData, y = yData, mode = "markers"))
-fig.show()
+xData, yData = remove(30, 35, xData, yData)
+xData, yData = remove(50, 55, xData, yData)
+xData, yData = remove(70, 80, xData, yData)
+xData, yData = remove(100, 110, xData, yData)
 
 
 
-csvName = "expdatanoise.csv"
-df = pd.DataFrame({"x": xData, "y": yData})
+csvName = "demodata.csv"
+df = pd.DataFrame({"param1": xData, "output": yData})
 df.to_csv(csvName, index=False)
 # with open(csvName, 'w') as csvfile: 
 #     # creating a csv writer object 
