@@ -7,8 +7,6 @@ import pandas as pd
 
 from scipy.stats import norm
 
-import plotly.graph_objects as go
-
 import math
 class MultitaskGPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, likelihood, params, numTasks):
@@ -31,45 +29,18 @@ class Optimizer:
         self.y = y
         self.numInput = self.X.size(0)
         self.numTasks = len(self.y[0])
-        if self.X.dim() == 1:
-            self.params = 1
-        else:
-            self.params = len(self.X[0])
-        if len(self.X != 0):
-            if self.params == 1:
-                self.domain = [self.X[0].item(), self.X[-1].item()]
-                self.range = self.domain[1]-self.domain[0]
-            elif self.params == 2:
-                self.domain = [[self.X[0][0].item(), self.X[-1][0].item()], [self.X[0][1].item(), self.X[-1][1].item()]]
-                self.range1 = self.domain[0][1]-self.domain[0][0]
-                self.range2 = self.domain[1][1]-self.domain[1][0]
+        self.params = len(self.X[0])
+        self.domain = [[7.52, 7.83], [0.84, 0.91], [0, 1.31]]
+        self.range1 = self.domain[0][1]-self.domain[0][0]
+        self.range2 = self.domain[1][1]-self.domain[1][0]
+        self.range3 = self.domain[2][1]-self.domain[2][0]
     
     def run(self):
         self.trainGP()
         for i in range(5):
             self.modelSurrogate()
             self.evaluateNext()
-        return self.plot()
-
-    def setOptimizationTarget(self, target):
-        if target == "Maximize":
-            self.target = max
-            self.targetIndex = np.argmax
-        else:
-            self.target = min
-            self.targetIndex = np.argmin
-    
-    def setKernel(self, kernelInput):
-        self.kernel = gpytorch.kernels.MaternKernel(nu=0.5, ard_nums = self.params)
-        if kernelInput == "matern":
-            self.kernel = gpytorch.kernels.MaternKernel(nu=0.5, ard_nums = self.params) 
-        if kernelInput == "sek":
-            self.kernel = gpytorch.kernels.RBFKernel(ard_nums = self.params)  
-
-    def setAcquisition(self, acquisitionInput):
-        self.acquisition = self.probabilityOfImprovement 
-        if acquisitionInput == "pi":
-            self.acquisition = self.probabilityOfImprovement 
+        self.modelSurrogate()
         
     def trainGP(self, trainIter = 10):
         self.likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=self.numTasks)
@@ -91,58 +62,48 @@ class Optimizer:
         self.model.eval()
         self.observedPred = (self.model(self.X))
     
-    def modelSurrogate(self):
-        self.prediction = self.likelihood(self.observedPred).mean.detach().numpy()
+    def modelSurrogate(self, *args):
+        self.prediction = self.likelihood(self.model(self.X)).mean.detach().numpy()
+        if args:
+            return self.likelihood(self.model(args[0])).mean.detach().numpy()
 
-    def probabilityOfImprovement(self):
-        if self.params == 1:
-            exploreX = self.range*torch.rand(25)+self.domain[0]
-            bestPoint = self.target(self.prediction)
-            observedPred = (self.model(exploreX))
-            exploreY = self.likelihood(observedPred).mean.detach().numpy()
-            stdev = np.sqrt(observedPred.variance.detach().numpy())
-            z = (exploreY - bestPoint)/stdev
-            cdf = norm.cdf(z)
-            if self.target == max:
-                index = np.argmax(cdf)
-            else:
-                cdf = -cdf
-                index = np.argmin(cdf)
-                newX = exploreX[index]
 
-            return newX.double(), torch.tensor([index])
-        elif self.params == 2:
-            exploreX1 = self.range1*torch.rand(int(5))+self.domain[0][0]
-            exploreX2 = self.range2*torch.rand(int(5))+self.domain[1][0]
-            exploreX = torch.cat((
-                exploreX1.contiguous().view(exploreX1.numel(), 1),
-                exploreX2.contiguous().view(exploreX2.numel(), 1)),
-                dim=1
-            )
-            bestPoint = self.target(self.prediction)
-            observedPred = (self.model(exploreX))
-            exploreY = self.likelihood(observedPred).mean.detach().numpy()
-            stdev = np.sqrt(observedPred.variance.detach().numpy())
-            z = (exploreY - bestPoint)/stdev
-            cdf = norm.cdf(z)
-            if self.target == max:
-                index = np.argmax(cdf)
-            else:
-                cdf = -cdf
-                index = np.argmin(cdf)
-            newX = exploreX[index]
-            return newX, index
+    def acquisitionFunction(self):
+        exploreX1 = self.range1*torch.rand(int(5))+self.domain[0][0]
+        exploreX2 = self.range2*torch.rand(int(5))+self.domain[1][0]
+        exploreX3 = self.range3*torch.rand(int(5))+self.domain[2][0]
+        exploreX = torch.stack([exploreX1, exploreX2, exploreX3], -1)
+        bestScore = self.prediction[0][1]+self.prediction[0][2]+self.prediction[0][3]-self.prediction[0][0]
+        for i in range(len(self.prediction)):
+            score = self.prediction[i][1]+self.prediction[i][2]+self.prediction[i][3]-self.prediction[i][0]
+            if score > bestScore:
+                bestScore = score
+        observedPred = (self.model(exploreX))
+        exploreY = self.likelihood(observedPred).mean.detach().numpy()
+        scoredY = []
+        for item in exploreY:
+            scoredY.append(item[1]+item[2]+item[3]-item[0])
+        scoredY = np.array(scoredY)
+        stdev = np.sqrt(scoredY)
+        z = (scoredY - bestScore)/stdev
+        cdf = norm.cdf(z)
+        index = np.argmax(cdf)
+        newX = exploreX[index]
+        return newX, index
     def evaluateNext(self):
-        if self.params == 1:
-            newX, index = self.acquisition()
-            self.X.index_add(0, index, newX)
-        elif self.params == 2:
-            newX, index = self.acquisition()
-            print(newX.unsqueeze(0))
-            self.X = torch.cat((self.X, newX.unsqueeze(0)), 0)
-            print(self.X)
+        newX, index = self.acquisitionFunction()
+        self.X = torch.cat((self.X, newX.unsqueeze(0)), 0)
     def result(self):
-        print(self.prediction)
+        bestIndex = 0
+        bestScore = self.prediction[0][1]+self.prediction[0][2]+self.prediction[0][3]-self.prediction[0][0]
+        for i in range(len(self.prediction)):
+            score = self.prediction[i][1]+self.prediction[i][2]+self.prediction[i][3]-self.prediction[i][0]
+            if score > bestScore:
+                bestScore = score
+                bestIndex = i
+        print(self.X[i], score)
+        return score, self.X[i], self.prediction[i]
+
         
 def main():
     filename = 'testdata/multiparam.xlsx'
@@ -179,13 +140,25 @@ def main():
     y4 = torch.from_numpy(df["TL"].to_numpy()[:23].astype('float64'))
     y = torch.stack([y1, y2, y3, y4], -1).float()
 
-    optimizer = Optimizer(X, y)
-    optimizer.setOptimizationTarget("Maximize")
-    optimizer.setKernel("sek")
-    optimizer.setAcquisition("pi")
-    optimizer.trainGP()
-    optimizer.modelSurrogate()
-    optimizer.result()
+    params = ["C", "d", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W"]
+    bestScore = 0
+    for param in params:
+        selectedParam = torch.tensor(df[param].to_numpy()[:23])
+        X = torch.stack([A, B, selectedParam], -1).float()
+        optimizer = Optimizer(X, y)
+        optimizer.run()
+        score, points, output = optimizer.result()
+        if score > bestScore:
+            best = points
+            bestScore = score
+            selected = param
+            best = best.resize(1, len(best))
+            bestOutput = optimizer.modelSurrogate(best)
+
+    print("Optimal ponits:", best)
+    print("Selected parameter: ", selected)
+    print("Best output: ", bestOutput)
+
 
 if __name__ == "__main__":
     main()
